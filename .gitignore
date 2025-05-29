@@ -1,0 +1,44 @@
+# Python bytecode files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Distribution / packaging
+dist/
+build/
+*.egg-info/
+
+# Virtual environments
+venv/
+env/
+.env/
+.venv/
+
+# Training data and models
+*.log
+training/models/*
+training/metrics/*
+training/plots/*
+trained_snake_model*.joblib
+trained_snake_model*.csv
+trained_snake_model*.png
+
+# Exception for .gitkeep files to maintain folder structure
+!training/models/.gitkeep
+!training/metrics/.gitkeep
+!training/plots/.gitkeep
+
+# IDE specific files
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# OS specific files
+.DS_Store
+Thumbs.db
+*.bak
+*~
+
+# Jupyter Notebook
+.ipynb_checkpoints

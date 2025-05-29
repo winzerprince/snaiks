@@ -1,0 +1,6 @@
+# requirements.txt
+pygame
+numpy
+pandas
+scikit-learn
+matplotlib
