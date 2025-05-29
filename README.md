@@ -1,9 +1,16 @@
 # SNAIKS
 ```
-                   _________________
-                  /                 \
-                 |  Snake AI Ecosystem |
-                  \_________________/
+
+                      /$$$$$$  /$$$$$$ /$$                
+                     /$$__  $$|_  $$_/| $$                
+  /$$$$$$$ /$$$$$$$ | $$  \ $$  | $$  | $$   /$$  /$$$$$$$
+ /$$_____/| $$__  $$| $$$$$$$$  | $$  | $$  /$$/ /$$_____/
+|  $$$$$$ | $$  \ $$| $$__  $$  | $$  | $$$$$$/ |  $$$$$$ 
+ \____  $$| $$  | $$| $$  | $$  | $$  | $$_  $$  \____  $$
+ /$$$$$$$/| $$  | $$| $$  | $$ /$$$$$$| $$ \  $$ /$$$$$$$/
+|_______/ |__/  |__/|__/  |__/|______/|__/  \__/|_______/ 
+                                                          
+        
 ```
 
 ## Project Overview
@@ -24,19 +31,14 @@ The primary goal is to create an environment where AI agents can learn effective
 ### Input Features
 Snakes perceive their environment through these sensory inputs:
 
-```
-PERCEPTION FEATURES
-┌─────────────────────────┬─────────────────────────────────┐
-│ Feature                 │ What Snake "Senses"             │
-├─────────────────────────┼─────────────────────────────────┤
-│ Current Direction       │ Where am I heading? (x,y vector)│
-│ Food Distance/Direction │ Where's the nearest snack?      │
-│ Wall Distances          │ How far to each boundary?       │
-│ Self-Collision Risk     │ Am I about to eat myself?       │
-│ Hunter Proximity        │ Is a predator nearby?           │
-│ Size Comparison         │ Am I bigger than others?        │
-└─────────────────────────┴─────────────────────────────────┘
-```
+| Feature | What Snake "Senses" |
+| ------- | ------------------ |
+| Current Direction | Where am I heading? (x,y vector) |
+| Food Distance/Direction | Where's the nearest snack? |
+| Wall Distances | How far to each boundary? |
+| Self-Collision Risk | Am I about to eat myself? |
+| Hunter Proximity | Is a predator nearby? |
+| Size Comparison | Am I bigger than others? |
 
 ### Model Structure
 Each AI snake uses a Decision Tree Classifier trained on gameplay data to make movement decisions. This model:
@@ -63,19 +65,11 @@ Each AI snake uses a Decision Tree Classifier trained on gameplay data to make m
 
 ### Intelligence Hierarchy
 
-```
-SNAKE INTELLIGENCE LEVELS
-┌───────────────────┐
-│  ML-DRIVEN SNAKES │ Trained on collective snake experiences
-└─────────┬─────────┘
-          ▲
-┌─────────┴─────────┐
-│   HUNTER SNAKES   │ Actively hunt smaller snakes, avoid larger ones
-└─────────┬─────────┘
-          ▲
-┌─────────┴─────────┐
-│  ORDINARY SNAKES  │ Seek food, avoid hunters
-└───────────────────┘
+```mermaid
+graph TD
+    A[ML-DRIVEN SNAKES<br>Trained on collective snake experiences] --> B
+    B[HUNTER SNAKES<br>Actively hunt smaller snakes, avoid larger ones] --> C
+    C[ORDINARY SNAKES<br>Seek food, avoid hunters]
 ```
 
 ### Death Conditions
