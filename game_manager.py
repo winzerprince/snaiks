@@ -2,304 +2,203 @@
 import pygame
 import random
 import time
-import logging # For logging within the class
 from settings import *
 from snake import Snake
-from food import Food
 from pygame.math import Vector2
-from ml.agent import SnakeAgent
-import os
+from basic_behavior import BasicBehavior
+from resource_manager import ResourceManager
+from creature_manager import CreatureManager
 
 class GameManager:
-    def __init__(self, logger):
-        self.logger = logger
+    def __init__(self):
         self.snakes = []
         self.food_items = []
-        self.score = 0 # Or track per snake
+        self.score = 0
         self.game_over = False
         self.winner = None
         self.last_food_spawn_time = time.time()
         self.last_snake_spawn_time = time.time()
-        self.next_snake_spawn_delay = random.uniform(SNAKE_SPAWN_INTERVAL_MIN, SNAKE_SPAWN_INTERVAL_MAX)
-
-        # Load ML model if it exists
-        model_path = "trained_snake_model.joblib"
-        self.ml_agent = None
-        if os.path.exists(model_path):
-            try:
-                self.ml_agent = SnakeAgent(model_path)
-                self.logger.info(f"Loaded ML model from {model_path}", extra={'snake_id': 'SYSTEM'})
-            except Exception as e:
-                self.logger.error(f"Failed to load ML model: {e}", extra={'snake_id': 'SYSTEM'})
-
-        # Initial food
-        for _ in range(MAX_FOOD_ON_SCREEN // 2):
-            self.spawn_food()
-
-        # Initial snake
-        self.spawn_snake()
-
-    def spawn_food(self):
-        """Create and add a new food item to the game."""
-        if len(self.food_items) < MAX_FOOD_ON_SCREEN:
-            self.food_items.append(Food())
-
-    def spawn_snake(self, is_ai_controlled=None):
-        """Create and add a new snake to the game."""
-        if len(self.snakes) < MAX_SNAKES_ON_SCREEN:
-            x = random.randint(SNAKE_SEGMENT_RADIUS * INITIAL_SNAKE_LENGTH, SCREEN_WIDTH - SNAKE_SEGMENT_RADIUS * INITIAL_SNAKE_LENGTH)
-            y = random.randint(SNAKE_SEGMENT_RADIUS * INITIAL_SNAKE_LENGTH, SCREEN_HEIGHT - SNAKE_SEGMENT_RADIUS * INITIAL_SNAKE_LENGTH)
-            random_body_color = (random.randint(50,150), random.randint(100,200), random.randint(50,150))
-            # Pass self.logger to the Snake constructor
-            new_snake = Snake(x, y, self.logger, color=random_body_color)
-
-            # Set AI control flag based on parameter or randomly if model exists
-            if is_ai_controlled is None:
-                is_ai_controlled = self.ml_agent is not None and random.random() < 0.7  # 70% chance if model exists
-
-            new_snake.is_ai_controlled = is_ai_controlled
-
-            self.snakes.append(new_snake)
-            # Updated log message to include AI status
-            self.logger.info(f"Spawned new {'AI-controlled' if is_ai_controlled else 'random'} snake {new_snake.id} at ({x:.1f},{y:.1f}). Total snakes: {len(self.snakes)}", extra={'snake_id': 'SYSTEM'})
+        
+        # Resource management
+        self.resource_manager = ResourceManager()
+        
+        # Creature management - modular system
+        self.creature_manager = CreatureManager()
+        
+        # Performance tracking
+        self.frame_count = 0
+        self.last_performance_update = time.time()
+        
+        # Spawn initial food items
+        self.spawn_initial_food()
 
     def update(self):
-        """Update game state, including snake movement and collisions."""
-        if self.game_over:
-            return
+        """Update game state, including snakes and food."""
+        self.resource_manager.start_frame()
+        
+        # Update snakes with AI behavior
+        for snake in self.snakes[:]:  # Use slice copy to allow safe removal
+            if snake.is_dead:
+                continue
+                
+            # Calculate basic behavior direction for snake
+            ai_direction = BasicBehavior.calculate_direction(snake, self.food_items, self.snakes)
+            
+            # Move snake with AI direction
+            snake.move(ai_direction)
+        
+        # Update spatial grid for efficient collision detection
+        self.resource_manager.update_spatial_grid(self.snakes, self.food_items)
+        
+        # Check for collisions and update game state
+        self.check_collisions()
+        
+        # Clean up dead snakes periodically
+        if self.resource_manager.should_cleanup():
+            self.cleanup_dead_snakes()
 
-        # Spawn new food
-        current_time = time.time()
-        if current_time - self.last_food_spawn_time > FOOD_SPAWN_INTERVAL and len(self.food_items) < MAX_FOOD_ON_SCREEN:
-            self.spawn_food()
-            self.last_food_spawn_time = current_time
+        # Spawn food if needed - spawn multiple at once to reach target
+        if len(self.food_items) < MAX_FOOD_ON_SCREEN:
+            if time.time() - self.last_food_spawn_time > FOOD_SPAWN_INTERVAL:
+                # Spawn multiple food items to quickly reach the target
+                food_to_spawn = min(5, MAX_FOOD_ON_SCREEN - len(self.food_items))
+                for _ in range(food_to_spawn):
+                    self.spawn_food()
+                self.last_food_spawn_time = time.time()
 
-        # Randomly spawn new snakes over time
-        if current_time - self.last_snake_spawn_time > self.next_snake_spawn_delay and len(self.snakes) < MAX_SNAKES_ON_SCREEN:
+        # Spawn new snakes if needed
+        if len(self.snakes) < MAX_SNAKES_ON_SCREEN and time.time() - self.last_snake_spawn_time > random.uniform(SNAKE_SPAWN_INTERVAL_MIN, SNAKE_SPAWN_INTERVAL_MAX):
             self.spawn_snake()
-            self.last_snake_spawn_time = current_time
-            self.next_snake_spawn_delay = random.uniform(SNAKE_SPAWN_INTERVAL_MIN, SNAKE_SPAWN_INTERVAL_MAX)
+            self.last_snake_spawn_time = time.time()
+        
+        # Update creatures using the modular creature manager
+        self.creature_manager.update(self.snakes, self.food_items)
+        
+        self.resource_manager.mark_update_complete()
+        
+        # Print performance stats occasionally
+        self.frame_count += 1
+        if self.frame_count % 300 == 0:  # Every 5 seconds at 60 FPS
+            self.print_performance_stats()
 
-        # Update snakes
+    def check_collisions(self):
+        """Check for collisions between snakes and food, and snake-to-snake collisions."""
+        # Food collisions
         for snake in self.snakes:
             if snake.is_dead:
                 continue
-
-            # --- Awareness: Find nearest food ---
-            nearest_food = None
-            min_food_dist = float('inf')
-            for food in self.food_items:
-                dist = (snake.head_position - food.position).length()
-                if dist < min_food_dist:
-                    min_food_dist = dist
-                    nearest_food = food
-
-            # --- Awareness: Find nearest hunter snake (excluding self) ---
-            nearest_hunter = None
-            min_hunter_dist = float('inf')
-            for other in self.snakes:
-                if other is snake or other.is_dead or not other.is_hunter:
+                
+            for food in self.food_items[:]:  # Use slice copy for safe removal
+                if snake.head_position.distance_to(food.position) < (SNAKE_SEGMENT_RADIUS + food.radius):
+                    snake.grow()
+                    self.food_items.remove(food)
+                    self.resource_manager.return_food_to_pool(food)
+        
+        # Snake-to-snake collisions (hunter eating smaller snakes)
+        for hunter in self.snakes:
+            if not hunter.is_hunter or hunter.is_dead:
+                continue
+                
+            for prey in self.snakes:
+                if prey == hunter or prey.is_dead:
                     continue
-                dist = (snake.head_position - other.head_position).length()
-                if dist < min_hunter_dist:
-                    min_hunter_dist = dist
-                    nearest_hunter = other
+                
+                # Hunter can eat smaller snakes
+                if (prey.size < hunter.size - FEAR_MARGIN and
+                    hunter.head_position.distance_to(prey.head_position) < SNAKE_SEGMENT_RADIUS * 2):
+                    
+                    # Hunter grows by 1/3 of prey's size
+                    growth_amount = max(1, prey.size // 3)
+                    hunter.grow(growth_amount, reason="ate snake")
+                    prey.die(reason="eaten by hunter")
+                    break  # Hunter can only eat one snake per frame
 
-            # --- Awareness: Find nearest prey snake (for hunters) ---
-            nearest_prey = None
-            min_prey_dist = float('inf')
-            if snake.is_hunter:  # Only hunters look for prey
-                for other in self.snakes:
-                    if other is snake or other.is_dead:
-                        continue
-                    # Only target snakes that are smaller by at least 1 unit
-                    if other.size < snake.size:
-                        dist = (snake.head_position - other.head_position).length()
-                        if dist < min_prey_dist:
-                            min_prey_dist = dist
-                            nearest_prey = other
+    def spawn_food(self):
+        """Spawn a new food item using object pool."""
+        food = self.resource_manager.get_food_from_pool()
+        self.food_items.append(food)
+    
+    def spawn_initial_food(self):
+        """Spawn initial food items to populate the screen"""
+        for _ in range(MAX_FOOD_ON_SCREEN):
+            self.spawn_food()
 
-            # --- Awareness: Find nearest threat (larger hunter) ---
-            nearest_threat = None
-            min_threat_dist = float('inf')
-            for other in self.snakes:
-                if other is snake or other.is_dead:
-                    continue
-                # Feared if other is hunter and larger by FEAR_MARGIN or more
-                if other.is_hunter and other.size >= snake.size + FEAR_MARGIN:
-                    dist = (snake.head_position - other.head_position).length()
-                    if dist < min_threat_dist:
-                        min_threat_dist = dist
-                        nearest_threat = other
+    def spawn_snake(self):
+        """Spawn a new snake at a random position with random color."""
+        # Generate random position
+        x = random.randint(100, SCREEN_WIDTH - 100)
+        y = random.randint(100, SCREEN_HEIGHT - 100)
 
-            # --- Direction to nearest food ---
-            if nearest_food:
-                direction_to_food = (nearest_food.position - snake.head_position)
-            else:
-                direction_to_food = Vector2(random.uniform(-1, 1), random.uniform(-1, 1))
+        # Generate random color variation for visual diversity
+        color_variation = (
+            random.randint(-20, 20),
+            random.randint(-20, 20),
+            random.randint(-20, 20)
+        )
 
-            # Determine the move direction
-            move_direction = None
-
-            # Use ML model for AI-controlled snakes if available
-            if hasattr(snake, 'is_ai_controlled') and snake.is_ai_controlled and self.ml_agent is not None:
-                try:
-                    # Prepare features for ML model
-                    current_dir = (0, 0)
-                    if snake.velocity.length_squared() > 0:
-                        norm_vel = snake.velocity.normalize()
-                        current_dir = (norm_vel.x, norm_vel.y)
-
-                    food_dist = (0, 0)
-                    if nearest_food:
-                        food_dist = (nearest_food.position.x - snake.head_position.x,
-                                      nearest_food.position.y - snake.head_position.y)
-
-                    wall_dist = (
-                        snake.head_position.y,                     # Distance to top wall
-                        SCREEN_WIDTH - snake.head_position.x,      # Distance to right wall
-                        SCREEN_HEIGHT - snake.head_position.y,     # Distance to bottom wall
-                        snake.head_position.x                      # Distance to left wall
-                    )
-
-                    self_dist = 100.0  # Placeholder
-
-                    hunter_dist = 9999.0
-                    hunter_vec = (0, 0)
-                    if nearest_hunter:
-                        hunter_vec = (nearest_hunter.head_position.x - snake.head_position.x,
-                                       nearest_hunter.head_position.y - snake.head_position.y)
-                        hunter_dist = (hunter_vec[0] ** 2 + hunter_vec[1] ** 2) ** 0.5
-
-                    # Collect all features in the format expected by the model
-                    features = [
-                        current_dir[0], current_dir[1],
-                        food_dist[0], food_dist[1],
-                        wall_dist[0], wall_dist[1], wall_dist[2], wall_dist[3],
-                        self_dist,
-                        hunter_dist, hunter_vec[0], hunter_vec[1]
-                    ]
-
-                    # Get model prediction
-                    action = self.ml_agent.predict(features)
-                    self.logger.debug(f"AI snake {snake.id} chose action: {action}", extra=snake.log_extra)
-
-                    # Convert action to direction
-                    if action == "UP":
-                        move_direction = Vector2(0, -1)
-                    elif action == "RIGHT":
-                        move_direction = Vector2(1, 0)
-                    elif action == "DOWN":
-                        move_direction = Vector2(0, 1)
-                    elif action == "LEFT":
-                        move_direction = Vector2(-1, 0)
-                    else:
-                        # Fallback if prediction is invalid
-                        self.logger.warning(f"Invalid ML prediction: {action} for snake {snake.id}", extra=snake.log_extra)
-                        move_direction = None
-
-                except Exception as e:
-                    self.logger.error(f"Error using ML model for snake {snake.id}: {e}", extra=snake.log_extra)
-                    move_direction = None
-
-            # If no valid ML direction or not AI-controlled, use traditional logic
-            if move_direction is None:
-                # --- Determine movement direction based on snake status ---
-                if snake.is_hunter:
-                    # Hunter behavior: prioritize hunting smaller snakes if available
-                    if nearest_prey and min_prey_dist < 200:
-                        direction_to_prey = (nearest_prey.head_position - snake.head_position)
-                        move_direction = direction_to_prey
-                        # Still be cautious of much larger snakes
-                        if nearest_threat and min_threat_dist < 150:
-                            direction_away_threat = (snake.head_position - nearest_threat.head_position)
-                            # Blend: hunt prey but avoid threats
-                            move_direction = direction_to_prey + direction_away_threat * 1.5
-                    else:
-                        # No prey nearby, fallback to food seeking
-                        move_direction = direction_to_food
-                        # Still avoid larger threats
-                        if nearest_threat and min_threat_dist < 150:
-                            direction_away_threat = (snake.head_position - nearest_threat.head_position)
-                            move_direction = direction_to_food + direction_away_threat * 1.5
-                else:
-                    # Normal snake behavior: avoid hunters
-                    if nearest_hunter and min_hunter_dist < 200:
-                        # Move away from hunter if close
-                        direction_away_hunter = (snake.head_position - nearest_hunter.head_position)
-                        # Combine: move towards food, but away from hunter
-                        move_direction = direction_to_food + direction_away_hunter * 2
-                    else:
-                        move_direction = direction_to_food
-
-            # --- Move snake with awareness ---
-            snake.move(
-                move_direction,
-                nearest_food=nearest_food.position if nearest_food else None,
-                nearest_hunter=nearest_hunter.head_position if nearest_hunter else None,
-                min_food_dist=min_food_dist,
-                min_hunter_dist=min_hunter_dist
+        # Create base color - either use normal snake color or a random variation
+        if random.random() < 0.8:  # 80% chance of normal color
+            base_color = NORMAL_SNAKE_BODY_COLOR
+        else:
+            # Generate a completely random color
+            base_color = (
+                random.randint(50, 200),
+                random.randint(50, 200),
+                random.randint(50, 200)
             )
 
-            # Check collision with food
-            for food in self.food_items:
-                distance = (snake.head_position - food.position).length()
-                if distance < (SNAKE_SEGMENT_RADIUS + FOOD_RADIUS):
-                    snake.grow(amount=1, reason="ate food")
-                    self.logger.info(
-                        f"Snake {snake.id} ate food at ({food.position.x},{food.position.y}) | FoodDist:{min_food_dist:.1f} | HunterDist:{min_hunter_dist:.1f}",
-                        extra=snake.log_extra
-                    )
-                    self.food_items.remove(food)
-                    self.spawn_food()
-                    break
+        # Apply variation to the base color
+        color = (
+            max(0, min(255, base_color[0] + color_variation[0])),
+            max(0, min(255, base_color[1] + color_variation[1])),
+            max(0, min(255, base_color[2] + color_variation[2]))
+        )
 
-            # Check hunter snake collisions with smaller snakes
-            if snake.is_hunter:
-                for other in self.snakes:
-                    if other is snake or other.is_dead or other.size >= snake.size:
-                        continue
+        # Create and add the snake
+        new_snake = Snake(x, y, color)
 
-                    # Check for collision with other snake's head
-                    head_distance = (snake.head_position - other.head_position).length()
-                    if head_distance < (SNAKE_SEGMENT_RADIUS * 2):
-                        # Hunter snake consumed smaller snake
-                        growth_amount = max(1, other.size // 3)  # Grow by 1/3 of the prey's size
-                        snake.grow(amount=growth_amount, reason=f"ate snake {other.id}")
-                        self.logger.info(
-                            f"Hunter snake {snake.id} consumed snake {other.id} | Size gain: {growth_amount}",
-                            extra=snake.log_extra
-                        )
-                        other.die(reason=f"eaten by hunter snake {snake.id}")
-                        break
+        # Give random initial direction
+        direction = Vector2(
+            random.uniform(-1, 1),
+            random.uniform(-1, 1)
+        )
+        if direction.length_squared() > 0:
+            direction.normalize_ip()
+            new_snake.move(direction)
 
-                    # Check for collision with any body segment of the other snake
-                    for segment_pos in other.body_segments:
-                        segment_distance = (snake.head_position - segment_pos).length()
-                        if segment_distance < (SNAKE_SEGMENT_RADIUS * 2):
-                            # Hunter snake consumed smaller snake by hitting its body
-                            growth_amount = max(1, other.size // 3)  # Grow by 1/3 of the prey's size
-                            snake.grow(amount=growth_amount, reason=f"ate snake {other.id} body")
-                            self.logger.info(
-                                f"Hunter snake {snake.id} consumed snake {other.id} by hitting its body | Size gain: {growth_amount}",
-                                extra=snake.log_extra
-                            )
-                            other.die(reason=f"body eaten by hunter snake {snake.id}")
-                            break
-
-                    # If the other snake is already dead from body collision, break the outer loop too
-                    if other.is_dead:
-                        break
-
-        # Remove dead snakes
-        self.snakes = [s for s in self.snakes if not s.is_dead]
+        self.snakes.append(new_snake)
+    
+    def cleanup_dead_snakes(self):
+        """Remove dead snakes that have been dead for a while"""
+        current_time = time.time()
+        
+        # Remove snakes that have been dead for more than 3 seconds
+        self.snakes = [snake for snake in self.snakes 
+                      if not snake.is_dead or (current_time - getattr(snake, 'death_time', current_time)) < 3.0]
+    
+    def print_performance_stats(self):
+        """Print performance statistics to console"""
+        stats = self.resource_manager.get_performance_stats()
+        creature_counts = self.creature_manager.get_creature_counts()
+        
+        print(f"FPS: {stats.get('fps', 0):.1f}, "
+              f"Snakes: {len([s for s in self.snakes if not s.is_dead])}, "
+              f"Food: {len(self.food_items)}, "
+              f"Rippers: {creature_counts.get('rippers', 0)}, "
+              f"Scavengers: {creature_counts.get('scavengers', 0)}, "
+              f"Update: {stats.get('update_time_ms', 0):.1f}ms")
 
     def draw(self, screen):
-        """Draw all game elements to the screen."""
-        # Draw food
+        """Draw all game elements on the screen."""
+        # Draw food items
         for food in self.food_items:
             food.draw(screen)
 
         # Draw snakes
         for snake in self.snakes:
             snake.draw(screen)
+
+        # Draw creatures using the modular creature manager
+        self.creature_manager.draw(screen)
+        
+        self.resource_manager.mark_draw_complete()

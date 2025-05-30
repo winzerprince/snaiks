@@ -22,7 +22,7 @@ WALL_BEHAVIOR = "wraparound"  # "wraparound" or "destructive"
 # Food
 FOOD_RADIUS = 7
 MAX_FOOD_ON_SCREEN = 15
-FOOD_SPAWN_INTERVAL = 2 # seconds
+FOOD_SPAWN_INTERVAL = 0.5 # seconds
 
 # Snake properties
 INITIAL_SNAKE_LENGTH = 3
@@ -32,12 +32,12 @@ BASE_MAX_SPEED = 5.0  # Pixels per frame
 BASE_ACCELERATION = 0.2 # Pixels per frame^2
 # Factor by which speed/acceleration decreases with size.
 # e.g. max_speed = BASE_MAX_SPEED / (1 + size * SIZE_SPEED_PENALTY_FACTOR)
-SIZE_SPEED_PENALTY_FACTOR = 0.05
-SIZE_ACCEL_PENALTY_FACTOR = 0.05
+SIZE_SPEED_PENALTY_FACTOR = 0.0
+SIZE_ACCEL_PENALTY_FACTOR = 0.0
 
-SNAKE_SPAWN_INTERVAL_MIN = 3 # seconds
-SNAKE_SPAWN_INTERVAL_MAX = 10 # seconds
-MAX_SNAKES_ON_SCREEN = 5 # Initial limit, can be adjusted
+SNAKE_SPAWN_INTERVAL_MIN = 2 # seconds
+SNAKE_SPAWN_INTERVAL_MAX = 2 # seconds
+MAX_SNAKES_ON_SCREEN = 20 # Initial limit, can be adjusted
 
 FOOD_TO_BECOME_HUNTER = 10
 WINNING_SIZE = 50 # Example size to win
@@ -48,13 +48,20 @@ WALL_AVOIDANCE_DISTANCE = SNAKE_SEGMENT_RADIUS * 4 # How far to "see" walls
 THREAT_AVOIDANCE_DISTANCE = SNAKE_SEGMENT_RADIUS * 10 # How far to "see" threats
 PROACTIVE_AVOIDANCE_STRENGTH = 0.5 # How strongly to steer away
 
-# Logging Settings
-import logging
-LOG_LEVEL = logging.DEBUG # Level of messages to log (DEBUG, INFO, WARNING, ERROR, CRITICAL)
-LOG_FILE_PATH = "game_activity.log"
-LOG_HISTORY_PATH = "game_history.log"  # Appended to, keeps all logs
-ML_DATA_LOG_PATH = "ml_training_data.log"  # For ML training data (state, action, reward, next_state, done)
+# ===== CREATURE SYSTEM =====
+# Enable/Disable switches for different creatures
+ENABLE_RIPPERS = True  # Enable Ripper entities that hunt hunters
+ENABLE_SCAVENGERS = True  # Enable Scavenger entities (competes for food)
+ENABLE_GUARDIANS = False  # Enable Guardian entities (future creature)
 
-# ML settings (placeholders for now)
-MODEL_PATH = "ml/models/snake_model.pth"
+# Ripper Entity Settings
+MAX_RIPPERS_ON_SCREEN = 3  # Maximum number of rippers allowed
+RIPPER_SPAWN_INTERVAL = 5.0  # Seconds between ripper spawn checks
+HUNTER_POPULATION_THRESHOLD = 0.5  # 50% hunters triggers ripper spawning
+RIPPER_DESPAWN_DELAY = 10.0  # Seconds before ripper despawns when hunter population drops
+
+# Scavenger Entity Settings
+MAX_SCAVENGERS_ON_SCREEN = 2  # Maximum number of scavengers allowed
+SCAVENGER_SPAWN_INTERVAL = 8.0  # Seconds between scavenger spawn checks
+FOOD_ABUNDANCE_THRESHOLD = 10  # Minimum food count to trigger scavenger spawning
 

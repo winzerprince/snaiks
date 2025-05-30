@@ -4,10 +4,6 @@ from settings import *
 from snake import Snake
 from food import Food
 from game_manager import GameManager
-from logger_setup import setup_logger # Import the logger setup
-
-# Initialize logger globally or pass it around
-game_logger = setup_logger()
 
 def main():
     pygame.init()
@@ -15,7 +11,7 @@ def main():
     pygame.display.set_caption("Snake Battle Royale")
     clock = pygame.time.Clock()
 
-    game_manager = GameManager(game_logger) # Pass logger to GameManager
+    game_manager = GameManager()
 
     running = True
     while running:
