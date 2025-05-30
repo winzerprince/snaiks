@@ -4,10 +4,13 @@ import random
 import time
 from settings import *
 from snake import Snake
+from food import create_food
+from food_effects import FoodEffectsManager
 from pygame.math import Vector2
 from basic_behavior import BasicBehavior
 from resource_manager import ResourceManager
 from creature_manager import CreatureManager
+from effects_manager import EffectsManager
 
 class GameManager:
     def __init__(self):
@@ -25,6 +28,12 @@ class GameManager:
         # Creature management - modular system
         self.creature_manager = CreatureManager()
         
+        # Environmental effects management
+        self.effects_manager = EffectsManager()
+        
+        # Food effects management for special food
+        self.food_effects_manager = FoodEffectsManager()
+        
         # Performance tracking
         self.frame_count = 0
         self.last_performance_update = time.time()
@@ -38,6 +47,13 @@ class GameManager:
         
         # Update snakes with AI behavior
         for snake in self.snakes[:]:  # Use slice copy to allow safe removal
+            if snake.is_dead:
+                continue
+                
+            # Check starvation status for each snake
+            snake.check_starvation()
+            
+            # Skip further processing if snake died from starvation
             if snake.is_dead:
                 continue
                 
@@ -74,6 +90,12 @@ class GameManager:
         # Update creatures using the modular creature manager
         self.creature_manager.update(self.snakes, self.food_items)
         
+        # Update food effects on snakes
+        self.food_effects_manager.update_effects(self.snakes)
+        
+        # Update environmental effects
+        self.effects_manager.update(self.snakes, self.food_items, self.creature_manager)
+        
         self.resource_manager.mark_update_complete()
         
         # Print performance stats occasionally
@@ -90,7 +112,12 @@ class GameManager:
                 
             for food in self.food_items[:]:  # Use slice copy for safe removal
                 if snake.head_position.distance_to(food.position) < (SNAKE_SEGMENT_RADIUS + food.radius):
+                    # Apply food effects based on food type
+                    self.food_effects_manager.apply_food_effect(snake, food.food_type)
+                    
+                    # Normal growth (special foods may have additional effects)
                     snake.grow()
+                    
                     self.food_items.remove(food)
                     self.resource_manager.return_food_to_pool(food)
         
@@ -103,6 +130,13 @@ class GameManager:
                 if prey == hunter or prey.is_dead:
                     continue
                 
+                # Check if prey has immunity effect active
+                prey_effects = self.food_effects_manager.get_snake_effects(prey.id)
+                is_immune = any(effect.effect_type == "immunity" for effect in prey_effects)
+                
+                if is_immune:
+                    continue  # Skip immune snakes
+                
                 # Hunter can eat smaller snakes
                 if (prey.size < hunter.size - FEAR_MARGIN and
                     hunter.head_position.distance_to(prey.head_position) < SNAKE_SEGMENT_RADIUS * 2):
@@ -114,8 +148,8 @@ class GameManager:
                     break  # Hunter can only eat one snake per frame
 
     def spawn_food(self):
-        """Spawn a new food item using object pool."""
-        food = self.resource_manager.get_food_from_pool()
+        """Spawn a new food item using the special food creation system."""
+        food = create_food()  # Use the special food factory function
         self.food_items.append(food)
     
     def spawn_initial_food(self):
@@ -180,12 +214,16 @@ class GameManager:
         """Print performance statistics to console"""
         stats = self.resource_manager.get_performance_stats()
         creature_counts = self.creature_manager.get_creature_counts()
+        effect_counts = self.effects_manager.get_effect_counts()
         
         print(f"FPS: {stats.get('fps', 0):.1f}, "
               f"Snakes: {len([s for s in self.snakes if not s.is_dead])}, "
               f"Food: {len(self.food_items)}, "
               f"Rippers: {creature_counts.get('rippers', 0)}, "
               f"Scavengers: {creature_counts.get('scavengers', 0)}, "
+              f"BlackHoles: {effect_counts.get('black_holes', 0)}, "
+              f"SpeedZones: {effect_counts.get('speed_zones', 0)}, "
+              f"FoodMagnets: {effect_counts.get('food_magnets', 0)}, "
               f"Update: {stats.get('update_time_ms', 0):.1f}ms")
 
     def draw(self, screen):
@@ -194,11 +232,16 @@ class GameManager:
         for food in self.food_items:
             food.draw(screen)
 
-        # Draw snakes
+        # Draw snakes with their active effects
         for snake in self.snakes:
-            snake.draw(screen)
+            # Get active effects for this snake to show visual indicators
+            active_effects = self.food_effects_manager.get_snake_effects(snake.id)
+            snake.draw(screen, active_effects)
 
         # Draw creatures using the modular creature manager
         self.creature_manager.draw(screen)
+        
+        # Draw environmental effects
+        self.effects_manager.draw(screen)
         
         self.resource_manager.mark_draw_complete()
